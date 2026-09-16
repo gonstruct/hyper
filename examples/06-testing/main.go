@@ -17,7 +17,7 @@ type Task struct {
 }
 
 func TestCreateTask(t *testing.T) {
-	fake := hyper.NewFake(t)
+	fake := hyper.Fake(t)
 
 	fake.On(hyper.POST, "https://api.example.com/tasks").
 		Reply(http.StatusAccepted, Task{ID: "task_1", Status: "queued"})

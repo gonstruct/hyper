@@ -13,10 +13,10 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// Fake is the network, faked: an http.RoundTripper handed to a client
+// fake is the network, faked: an http.RoundTripper handed to a client
 // through Transport, so there is nothing global and tests run in parallel.
 // It answers requests from what a test put in and records what was sent.
-type Fake struct {
+type fake struct {
 	t            testing.TB
 	mutex        sync.Mutex
 	expectations []*Expectation
@@ -49,20 +49,20 @@ type Sent struct {
 	Body    []byte
 }
 
-// NewFake makes a fake. Given the test, a request it has no answer for fails
-// the test with the request printed; without it, only the call fails.
-func NewFake(t ...testing.TB) *Fake {
-	fake := &Fake{}
+// Fake makes a fake network. Given the test, a request it has no answer for
+// fails the test with the request printed; without it, only the call fails.
+func Fake(t ...testing.TB) *fake {
+	instance := &fake{}
 	if len(t) > 0 {
-		fake.t = t[0]
+		instance.t = t[0]
 	}
 
-	return fake
+	return instance
 }
 
 // On registers an expectation. Patterns are matched against the full URL and
 // against the path alone, so both forms work; * matches one path segment.
-func (f *Fake) On(method Method, pattern string) *Expectation {
+func (f *fake) On(method Method, pattern string) *Expectation {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 
@@ -105,7 +105,7 @@ func Respond(status int, body any, headers H) Answer {
 }
 
 // RoundTrip is what hyper calls.
-func (f *Fake) RoundTrip(request *http.Request) (*http.Response, error) {
+func (f *fake) RoundTrip(request *http.Request) (*http.Response, error) {
 	sent, err := record(request)
 	if err != nil {
 		return nil, err
@@ -134,7 +134,7 @@ func (f *Fake) RoundTrip(request *http.Request) (*http.Response, error) {
 	return nil, fmt.Errorf("hyper fake: no answer for %s %s", sent.Method, sent.URL)
 }
 
-func (f *Fake) failf(format string, args ...any) {
+func (f *fake) failf(format string, args ...any) {
 	if f.t != nil {
 		f.t.Errorf(format, args...)
 	}
@@ -260,7 +260,7 @@ func (sent Sent) Query(name string) string {
 }
 
 // Sent lists every request the fake received.
-func (f *Fake) Sent() []Sent {
+func (f *fake) Sent() []Sent {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 
@@ -268,7 +268,7 @@ func (f *Fake) Sent() []Sent {
 }
 
 // AssertSent fails unless a matching request was sent. Conditions narrow it.
-func (f *Fake) AssertSent(t testing.TB, method Method, pattern string, conditions ...func(Sent) bool) {
+func (f *fake) AssertSent(t testing.TB, method Method, pattern string, conditions ...func(Sent) bool) {
 	t.Helper()
 
 	for _, sent := range f.Sent() {
@@ -280,7 +280,7 @@ func (f *Fake) AssertSent(t testing.TB, method Method, pattern string, condition
 }
 
 // AssertNotSent fails if a matching request was sent.
-func (f *Fake) AssertNotSent(t testing.TB, method Method, pattern string, conditions ...func(Sent) bool) {
+func (f *fake) AssertNotSent(t testing.TB, method Method, pattern string, conditions ...func(Sent) bool) {
 	t.Helper()
 
 	for _, sent := range f.Sent() {
@@ -292,7 +292,7 @@ func (f *Fake) AssertNotSent(t testing.TB, method Method, pattern string, condit
 }
 
 // AssertCount fails unless exactly count requests were sent.
-func (f *Fake) AssertCount(t testing.TB, count int) {
+func (f *fake) AssertCount(t testing.TB, count int) {
 	t.Helper()
 
 	if sent := len(f.Sent()); sent != count {
@@ -300,7 +300,7 @@ func (f *Fake) AssertCount(t testing.TB, count int) {
 	}
 }
 
-func (f *Fake) matched(sent Sent, method Method, pattern string, conditions []func(Sent) bool) bool {
+func (f *fake) matched(sent Sent, method Method, pattern string, conditions []func(Sent) bool) bool {
 	if sent.Method != method || (!matchPattern(pattern, sent.URL) && !matchPattern(pattern, sent.Path)) {
 		return false
 	}

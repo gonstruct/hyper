@@ -83,7 +83,7 @@ in and records what was sent. No globals, so tests run in parallel, and a
 request nobody expected fails the test with the request printed.
 
 ```go
-fake := hyper.NewFake(t)
+fake := hyper.Fake(t)
 fake.On(hyper.POST, "/tasks").Reply(http.StatusAccepted, Task{ID: "task_1"})
 fake.On(hyper.GET, "/tasks/*").Sequence(
     hyper.Reply(http.StatusOK, Task{Status: "running"}),

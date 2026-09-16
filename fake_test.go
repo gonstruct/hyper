@@ -13,14 +13,14 @@ type task struct {
 	Status string `json:"status"`
 }
 
-func faked(t *testing.T, fake *hyper.Fake) hyper.Client {
+func faked(t *testing.T, fake http.RoundTripper) hyper.Client {
 	t.Helper()
 
 	return hyper.New(context.Background(), hyper.Base("https://api.example.com"), hyper.Transport(fake), hyper.Untraced())
 }
 
 func TestTheFakeAnswersByMethodAndPattern(t *testing.T) {
-	fake := hyper.NewFake(t)
+	fake := hyper.Fake(t)
 	fake.On(hyper.POST, "/tasks").Reply(http.StatusAccepted, task{ID: "task_1", Status: "queued"})
 	fake.On(hyper.GET, "https://api.example.com/tasks/*").Reply(http.StatusOK, task{ID: "task_1", Status: "done"})
 
@@ -40,7 +40,7 @@ func TestTheFakeAnswersByMethodAndPattern(t *testing.T) {
 }
 
 func TestASequenceAnswersInOrderAndThenFails(t *testing.T) {
-	fake := hyper.NewFake(&recordingT{TB: t})
+	fake := hyper.Fake(&recordingT{TB: t})
 	fake.On(hyper.GET, "/tasks/*").Sequence(
 		hyper.Reply(http.StatusOK, task{Status: "running"}),
 		hyper.Reply(http.StatusOK, task{Status: "succeeded"}),
@@ -58,7 +58,7 @@ func TestASequenceAnswersInOrderAndThenFails(t *testing.T) {
 }
 
 func TestAConditionNarrowsAnExpectation(t *testing.T) {
-	fake := hyper.NewFake(t)
+	fake := hyper.Fake(t)
 	fake.On(hyper.POST, "/tasks").
 		When(func(sent hyper.Sent) bool { return sent.JSON("title") == "forbidden" }).
 		Reply(http.StatusUnprocessableEntity, map[string]any{"error": map[string]any{"message": "title not allowed"}})
@@ -75,7 +75,7 @@ func TestAConditionNarrowsAnExpectation(t *testing.T) {
 }
 
 func TestRepliesCanCarryHeadersAndRawBodies(t *testing.T) {
-	fake := hyper.NewFake(t)
+	fake := hyper.Fake(t)
 	fake.On(hyper.GET, "/text").Sequence(hyper.Respond(http.StatusOK, "plain", hyper.H{"Content-Type": "text/plain"}))
 	fake.On(hyper.GET, "/bytes").Reply(http.StatusOK, []byte{1, 2, 3})
 	fake.On(hyper.DELETE, "/thing").Reply(http.StatusNoContent, nil)
@@ -94,7 +94,7 @@ func TestRepliesCanCarryHeadersAndRawBodies(t *testing.T) {
 }
 
 func TestAssertionsReadWhatWasSent(t *testing.T) {
-	fake := hyper.NewFake(t)
+	fake := hyper.Fake(t)
 	fake.On(hyper.POST, "/tasks").Reply(http.StatusAccepted, task{ID: "task_1"})
 	api := faked(t, fake)
 
@@ -117,7 +117,7 @@ func TestAssertionsReadWhatWasSent(t *testing.T) {
 
 func TestAnUnexpectedRequestFailsTheTestAndTheCall(t *testing.T) {
 	recorder := &recordingT{TB: t}
-	fake := hyper.NewFake(recorder)
+	fake := hyper.Fake(recorder)
 
 	err := faked(t, fake).Get("/nothing").Err()
 	if err == nil || recorder.failures == 0 {
@@ -125,7 +125,7 @@ func TestAnUnexpectedRequestFailsTheTestAndTheCall(t *testing.T) {
 	}
 
 	// Without a test handed over, only the call fails.
-	quiet := hyper.NewFake()
+	quiet := hyper.Fake()
 	if err := faked(t, quiet).Get("/nothing").Err(); err == nil {
 		t.Error("an unexpected request should still fail the call")
 	}
