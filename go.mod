@@ -1,0 +1,21 @@
+module github.com/gonstruct/hyper
+
+go 1.27
+
+require (
+	github.com/tidwall/gjson v1.19.0
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
+)
+
+require (
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/felixge/httpsnoop v1.1.0 // indirect
+	github.com/go-logr/logr v1.4.4 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/tidwall/match v1.1.1 // indirect
+	github.com/tidwall/pretty v1.2.0 // indirect
+	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
+	go.opentelemetry.io/otel v1.46.0 // indirect
+	go.opentelemetry.io/otel/metric v1.46.0 // indirect
+	go.opentelemetry.io/otel/trace v1.46.0 // indirect
+)
