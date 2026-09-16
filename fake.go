@@ -1,7 +1,4 @@
-// Package hypertest fakes the network for code built on hyper. The fake is
-// an http.RoundTripper handed to a client through hyper.Transport, so there
-// is nothing global and tests run in parallel.
-package hypertest
+package hyper
 
 import (
 	"bytes"
@@ -13,11 +10,12 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/gonstruct/hyper"
 	"github.com/tidwall/gjson"
 )
 
-// Fake answers requests from what a test put in and records what was sent.
+// Fake is the network, faked: an http.RoundTripper handed to a client
+// through Transport, so there is nothing global and tests run in parallel.
+// It answers requests from what a test put in and records what was sent.
 type Fake struct {
 	t            testing.TB
 	mutex        sync.Mutex
@@ -28,7 +26,7 @@ type Fake struct {
 // Expectation is one rule: a method, a URL pattern, an optional condition on
 // the request, and what to reply.
 type Expectation struct {
-	method  hyper.Method
+	method  Method
 	pattern string
 	when    func(Sent) bool
 	replies []Answer
@@ -39,28 +37,32 @@ type Expectation struct {
 type Answer struct {
 	Status  int
 	Body    any
-	Headers hyper.H
+	Headers H
 }
 
 // Sent is a request the fake received, decoded enough to assert on.
 type Sent struct {
-	Method  hyper.Method
+	Method  Method
 	URL     string
 	Path    string
 	Headers http.Header
 	Body    []byte
 }
 
-// New makes a fake that fails the test on any request it has no answer for.
-func New(t testing.TB) *Fake {
-	t.Helper()
+// NewFake makes a fake. Given the test, a request it has no answer for fails
+// the test with the request printed; without it, only the call fails.
+func NewFake(t ...testing.TB) *Fake {
+	fake := &Fake{}
+	if len(t) > 0 {
+		fake.t = t[0]
+	}
 
-	return &Fake{t: t}
+	return fake
 }
 
 // On registers an expectation. Patterns are matched against the full URL and
 // against the path alone, so both forms work; * matches one path segment.
-func (f *Fake) On(method hyper.Method, pattern string) *Expectation {
+func (f *Fake) On(method Method, pattern string) *Expectation {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
 
@@ -98,7 +100,7 @@ func Reply(status int, body any) Answer {
 }
 
 // Respond is an Answer with headers.
-func Respond(status int, body any, headers hyper.H) Answer {
+func Respond(status int, body any, headers H) Answer {
 	return Answer{Status: status, Body: body, Headers: headers}
 }
 
@@ -120,16 +122,22 @@ func (f *Fake) RoundTrip(request *http.Request) (*http.Response, error) {
 
 		reply, ok := expectation.next()
 		if !ok {
-			f.t.Errorf("hypertest: %s %s was sent more times than the sequence has answers", sent.Method, sent.URL)
-			return nil, fmt.Errorf("hypertest: sequence for %s %s exhausted", sent.Method, sent.URL)
+			f.failf("hyper fake: %s %s was sent more times than the sequence has answers", sent.Method, sent.URL)
+			return nil, fmt.Errorf("hyper fake: sequence for %s %s exhausted", sent.Method, sent.URL)
 		}
 
 		return reply.response(request), nil
 	}
 
-	f.t.Errorf("hypertest: unexpected request %s %s\n%s", sent.Method, sent.URL, sent.Body)
+	f.failf("hyper fake: unexpected request %s %s\n%s", sent.Method, sent.URL, sent.Body)
 
-	return nil, fmt.Errorf("hypertest: no answer for %s %s", sent.Method, sent.URL)
+	return nil, fmt.Errorf("hyper fake: no answer for %s %s", sent.Method, sent.URL)
+}
+
+func (f *Fake) failf(format string, args ...any) {
+	if f.t != nil {
+		f.t.Errorf(format, args...)
+	}
 }
 
 func (e *Expectation) matches(sent Sent) bool {
@@ -183,7 +191,7 @@ func matchPattern(pattern, target string) bool {
 
 func record(request *http.Request) (Sent, error) {
 	sent := Sent{
-		Method:  hyper.Method(request.Method),
+		Method:  Method(request.Method),
 		URL:     request.URL.String(),
 		Path:    request.URL.Path,
 		Headers: request.Header.Clone(),
@@ -260,7 +268,7 @@ func (f *Fake) Sent() []Sent {
 }
 
 // AssertSent fails unless a matching request was sent. Conditions narrow it.
-func (f *Fake) AssertSent(t testing.TB, method hyper.Method, pattern string, conditions ...func(Sent) bool) {
+func (f *Fake) AssertSent(t testing.TB, method Method, pattern string, conditions ...func(Sent) bool) {
 	t.Helper()
 
 	for _, sent := range f.Sent() {
@@ -268,16 +276,16 @@ func (f *Fake) AssertSent(t testing.TB, method hyper.Method, pattern string, con
 			return
 		}
 	}
-	t.Errorf("hypertest: expected %s %s to have been sent", method, pattern)
+	t.Errorf("hyper fake: expected %s %s to have been sent", method, pattern)
 }
 
 // AssertNotSent fails if a matching request was sent.
-func (f *Fake) AssertNotSent(t testing.TB, method hyper.Method, pattern string, conditions ...func(Sent) bool) {
+func (f *Fake) AssertNotSent(t testing.TB, method Method, pattern string, conditions ...func(Sent) bool) {
 	t.Helper()
 
 	for _, sent := range f.Sent() {
 		if f.matched(sent, method, pattern, conditions) {
-			t.Errorf("hypertest: expected %s %s not to have been sent", method, pattern)
+			t.Errorf("hyper fake: expected %s %s not to have been sent", method, pattern)
 			return
 		}
 	}
@@ -288,11 +296,11 @@ func (f *Fake) AssertCount(t testing.TB, count int) {
 	t.Helper()
 
 	if sent := len(f.Sent()); sent != count {
-		t.Errorf("hypertest: expected %d requests, %d were sent", count, sent)
+		t.Errorf("hyper fake: expected %d requests, %d were sent", count, sent)
 	}
 }
 
-func (f *Fake) matched(sent Sent, method hyper.Method, pattern string, conditions []func(Sent) bool) bool {
+func (f *Fake) matched(sent Sent, method Method, pattern string, conditions []func(Sent) bool) bool {
 	if sent.Method != method || (!matchPattern(pattern, sent.URL) && !matchPattern(pattern, sent.Path)) {
 		return false
 	}

@@ -1,4 +1,4 @@
-package hypertest_test
+package hyper_test
 
 import (
 	"context"
@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/gonstruct/hyper"
-	"github.com/gonstruct/hyper/hypertest"
 )
 
 type task struct {
@@ -14,14 +13,14 @@ type task struct {
 	Status string `json:"status"`
 }
 
-func faked(t *testing.T, fake *hypertest.Fake) hyper.Client {
+func faked(t *testing.T, fake *hyper.Fake) hyper.Client {
 	t.Helper()
 
 	return hyper.New(context.Background(), hyper.Base("https://api.example.com"), hyper.Transport(fake), hyper.Untraced())
 }
 
 func TestTheFakeAnswersByMethodAndPattern(t *testing.T) {
-	fake := hypertest.New(t)
+	fake := hyper.NewFake(t)
 	fake.On(hyper.POST, "/tasks").Reply(http.StatusAccepted, task{ID: "task_1", Status: "queued"})
 	fake.On(hyper.GET, "https://api.example.com/tasks/*").Reply(http.StatusOK, task{ID: "task_1", Status: "done"})
 
@@ -41,10 +40,10 @@ func TestTheFakeAnswersByMethodAndPattern(t *testing.T) {
 }
 
 func TestASequenceAnswersInOrderAndThenFails(t *testing.T) {
-	fake := hypertest.New(&recordingT{TB: t})
+	fake := hyper.NewFake(&recordingT{TB: t})
 	fake.On(hyper.GET, "/tasks/*").Sequence(
-		hypertest.Reply(http.StatusOK, task{Status: "running"}),
-		hypertest.Reply(http.StatusOK, task{Status: "succeeded"}),
+		hyper.Reply(http.StatusOK, task{Status: "running"}),
+		hyper.Reply(http.StatusOK, task{Status: "succeeded"}),
 	)
 	api := faked(t, fake)
 
@@ -59,9 +58,9 @@ func TestASequenceAnswersInOrderAndThenFails(t *testing.T) {
 }
 
 func TestAConditionNarrowsAnExpectation(t *testing.T) {
-	fake := hypertest.New(t)
+	fake := hyper.NewFake(t)
 	fake.On(hyper.POST, "/tasks").
-		When(func(sent hypertest.Sent) bool { return sent.JSON("title") == "forbidden" }).
+		When(func(sent hyper.Sent) bool { return sent.JSON("title") == "forbidden" }).
 		Reply(http.StatusUnprocessableEntity, map[string]any{"error": map[string]any{"message": "title not allowed"}})
 	fake.On(hyper.POST, "/tasks").Reply(http.StatusAccepted, task{ID: "task_1"})
 	api := faked(t, fake)
@@ -76,8 +75,8 @@ func TestAConditionNarrowsAnExpectation(t *testing.T) {
 }
 
 func TestRepliesCanCarryHeadersAndRawBodies(t *testing.T) {
-	fake := hypertest.New(t)
-	fake.On(hyper.GET, "/text").Sequence(hypertest.Respond(http.StatusOK, "plain", hyper.H{"Content-Type": "text/plain"}))
+	fake := hyper.NewFake(t)
+	fake.On(hyper.GET, "/text").Sequence(hyper.Respond(http.StatusOK, "plain", hyper.H{"Content-Type": "text/plain"}))
 	fake.On(hyper.GET, "/bytes").Reply(http.StatusOK, []byte{1, 2, 3})
 	fake.On(hyper.DELETE, "/thing").Reply(http.StatusNoContent, nil)
 	api := faked(t, fake)
@@ -95,13 +94,13 @@ func TestRepliesCanCarryHeadersAndRawBodies(t *testing.T) {
 }
 
 func TestAssertionsReadWhatWasSent(t *testing.T) {
-	fake := hypertest.New(t)
+	fake := hyper.NewFake(t)
 	fake.On(hyper.POST, "/tasks").Reply(http.StatusAccepted, task{ID: "task_1"})
 	api := faked(t, fake)
 
 	api.Post("/tasks", map[string]any{"title": "write"}, hyper.Header("Idempotency-Key", "k"), hyper.Query{"dry": true})
 
-	fake.AssertSent(t, hyper.POST, "/tasks", func(sent hypertest.Sent) bool {
+	fake.AssertSent(t, hyper.POST, "/tasks", func(sent hyper.Sent) bool {
 		return sent.Header("Idempotency-Key") == "k" && sent.JSON("title") == "write" && sent.Query("dry") == "true"
 	})
 	fake.AssertNotSent(t, hyper.GET, "/tasks/*")
@@ -118,11 +117,17 @@ func TestAssertionsReadWhatWasSent(t *testing.T) {
 
 func TestAnUnexpectedRequestFailsTheTestAndTheCall(t *testing.T) {
 	recorder := &recordingT{TB: t}
-	fake := hypertest.New(recorder)
+	fake := hyper.NewFake(recorder)
 
 	err := faked(t, fake).Get("/nothing").Err()
 	if err == nil || recorder.failures == 0 {
 		t.Error("an unexpected request should fail the test and the call")
+	}
+
+	// Without a test handed over, only the call fails.
+	quiet := hyper.NewFake()
+	if err := faked(t, quiet).Get("/nothing").Err(); err == nil {
+		t.Error("an unexpected request should still fail the call")
 	}
 }
 

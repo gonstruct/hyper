@@ -78,21 +78,21 @@ attempt; when it does not, nothing happens. `Untraced()` turns it off,
 
 ## Testing
 
-`hypertest` is a fake transport for code built on hyper: it answers requests
-from what a test put in and records what was sent. No globals, so tests run in parallel, and a
+`hyper.NewFake` is a fake transport: it answers requests from what a test put
+in and records what was sent. No globals, so tests run in parallel, and a
 request nobody expected fails the test with the request printed.
 
 ```go
-fake := hypertest.New(t)
+fake := hyper.NewFake(t)
 fake.On(hyper.POST, "/tasks").Reply(http.StatusAccepted, Task{ID: "task_1"})
 fake.On(hyper.GET, "/tasks/*").Sequence(
-    hypertest.Reply(http.StatusOK, Task{Status: "running"}),
-    hypertest.Reply(http.StatusOK, Task{Status: "done"}),
+    hyper.Reply(http.StatusOK, Task{Status: "running"}),
+    hyper.Reply(http.StatusOK, Task{Status: "done"}),
 )
 
 api := hyper.New(ctx, hyper.Base("https://api.example.com"), hyper.Transport(fake))
 
-fake.AssertSent(t, hyper.POST, "/tasks", func(sent hypertest.Sent) bool {
+fake.AssertSent(t, hyper.POST, "/tasks", func(sent hyper.Sent) bool {
     return sent.Header("Idempotency-Key") == "k1" && sent.JSON("title") == "Write the README"
 })
 ```
