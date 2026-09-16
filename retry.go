@@ -41,11 +41,11 @@ func RetryWhen(when RetryFunc) Option {
 
 // Backoff grows exponentially from min, is capped at max, and is jittered so
 // clients that failed together do not retry together.
-func Backoff(min, max time.Duration) BackoffFunc {
+func Backoff(minimum, maximum time.Duration) BackoffFunc {
 	return func(attempt int) time.Duration {
-		delay := float64(min) * math.Pow(2, float64(attempt-1))
-		if delay > float64(max) {
-			delay = float64(max)
+		delay := float64(minimum) * math.Pow(2, float64(attempt-1))
+		if delay > float64(maximum) {
+			delay = float64(maximum)
 		}
 
 		return time.Duration(delay/2 + rand.Float64()*delay/2)
@@ -70,19 +70,31 @@ func (policy retryPolicy) should(response *Response) bool {
 }
 
 func (policy retryPolicy) delay(attempt int, response *Response) time.Duration {
-	if response.header != nil {
-		if after := response.header.Get("Retry-After"); after != "" {
-			if seconds, err := strconv.Atoi(after); err == nil {
-				return time.Duration(seconds) * time.Second
-			}
-			if at, err := http.ParseTime(after); err == nil {
-				return time.Until(at)
-			}
-		}
+	if after, ok := retryAfter(response.header); ok {
+		return after
 	}
 	if policy.backoff == nil {
 		return 0
 	}
 
 	return policy.backoff(attempt)
+}
+
+// retryAfter reads the provider's own wish, in seconds or as a date.
+func retryAfter(header http.Header) (time.Duration, bool) {
+	if header == nil {
+		return 0, false
+	}
+	value := header.Get("Retry-After")
+	if value == "" {
+		return 0, false
+	}
+	if seconds, err := strconv.Atoi(value); err == nil {
+		return time.Duration(seconds) * time.Second, true
+	}
+	if at, err := http.ParseTime(value); err == nil {
+		return time.Until(at), true
+	}
+
+	return 0, false
 }

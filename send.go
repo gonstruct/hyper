@@ -63,34 +63,10 @@ func once(ctx context.Context, client *http.Client, method Method, target string
 		defer cancel()
 	}
 
-	var reader io.Reader
-	var size int64 = -1
-	if s.body != nil {
-		if s.body.stream != nil {
-			reader, size = s.body.stream, s.body.size
-		} else {
-			reader, size = bytes.NewReader(s.body.bytes), int64(len(s.body.bytes))
-		}
-	}
-
-	request, err := http.NewRequestWithContext(ctx, string(method), target, reader)
+	request, err := build(ctx, method, target, s)
 	if err != nil {
 		response.err = fmt.Errorf("%w: %v", ErrTransport, err)
 		return response
-	}
-	if size >= 0 {
-		request.ContentLength = size
-	}
-	request.Header = s.headers.Clone()
-	if s.body != nil {
-		if s.contentType != "" {
-			request.Header.Set("Content-Type", s.contentType)
-		} else if s.body.contentType != "" && request.Header.Get("Content-Type") == "" {
-			request.Header.Set("Content-Type", s.body.contentType)
-		}
-	}
-	if request.Header.Get("Accept") == "" {
-		request.Header.Set("Accept", "application/json")
 	}
 
 	raw, err := client.Do(request)
@@ -103,26 +79,65 @@ func once(ctx context.Context, client *http.Client, method Method, target string
 	response.status = raw.StatusCode
 	response.header = raw.Header
 
-	if s.sink != nil {
-		if _, err := io.Copy(s.sink, raw.Body); err != nil {
-			response.err = fmt.Errorf("%w: read body: %v", ErrTransport, err)
-			return response
-		}
-		response.sunk = true
-	} else {
-		data, err := io.ReadAll(raw.Body)
-		if err != nil {
-			response.err = fmt.Errorf("%w: read body: %v", ErrTransport, err)
-			return response
-		}
-		response.body = data
+	if err := read(response, raw.Body, s.sink); err != nil {
+		response.err = fmt.Errorf("%w: read body: %v", ErrTransport, err)
+		return response
 	}
-
 	if raw.StatusCode >= 400 {
 		response.err = &StatusError{Method: method, URL: target, Code: raw.StatusCode, Response: response}
 	}
 
 	return response
+}
+
+// build is the *http.Request for one attempt: the body freshly readable,
+// the headers merged, the content type from the body unless a caller set one.
+func build(ctx context.Context, method Method, target string, s settings) (*http.Request, error) {
+	var reader io.Reader
+	var size int64 = -1
+	if s.body != nil {
+		if s.body.stream != nil {
+			reader, size = s.body.stream, s.body.size
+		} else {
+			reader, size = bytes.NewReader(s.body.bytes), int64(len(s.body.bytes))
+		}
+	}
+
+	request, err := http.NewRequestWithContext(ctx, string(method), target, reader)
+	if err != nil {
+		return nil, err
+	}
+	if size >= 0 {
+		request.ContentLength = size
+	}
+
+	request.Header = s.headers.Clone()
+	switch {
+	case s.body == nil:
+	case s.contentType != "":
+		request.Header.Set("Content-Type", s.contentType)
+	case s.body.contentType != "" && request.Header.Get("Content-Type") == "":
+		request.Header.Set("Content-Type", s.body.contentType)
+	}
+	if request.Header.Get("Accept") == "" {
+		request.Header.Set("Accept", "application/json")
+	}
+
+	return request, nil
+}
+
+// read buffers the body, or streams it into the sink when one was given.
+func read(response *Response, body io.Reader, sink io.Writer) error {
+	if sink != nil {
+		_, err := io.Copy(sink, body)
+		response.sunk = true
+		return err
+	}
+
+	data, err := io.ReadAll(body)
+	response.body = data
+
+	return err
 }
 
 func transportFor(s settings) http.RoundTripper {
