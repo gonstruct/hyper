@@ -18,60 +18,58 @@ import (
 	"github.com/gonstruct/hyper"
 )
 
-type Model struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"display_name"`
+type Project struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
-type GenerationRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
+type NewTask struct {
+	Title string `json:"title"`
+	Due   string `json:"due"`
 }
 
-type Generation struct {
+type Task struct {
 	ID     string `json:"id"`
+	Title  string `json:"title"`
 	Status string `json:"status"`
 }
 
 func main() {
-	studio := hyper.New(context.Background(), hyper.Base("https://api.tjp.com"), hyper.BearerToken("sk_..."))
+	api := hyper.New(context.Background(), hyper.Base("https://api.example.com"), hyper.BearerToken("token"))
 
 	// Folded: the response's error comes back from JSON when there is one.
 	// "data" is the key to decode; without it the root is decoded.
-	models, err := studio.Get("/v1/models", hyper.Query{"enabled": true}).JSON[[]Model]("data")
+	projects, err := api.Get("/projects", hyper.Query{"archived": false}).JSON[[]Project]("data")
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(len(models))
+	fmt.Println(len(projects))
 
 	// Step by step, when the status matters before the body does.
-	response := studio.Post("/v1/generations", GenerationRequest{Model: "nano-banana", Prompt: "a still life"})
+	response := api.Post("/tasks", NewTask{Title: "Write the README", Due: "2026-10-01"})
 	if !response.Ok() {
 		panic(response.Error())
 	}
-	generation, err := response.JSON[Generation]()
+	task, err := response.JSON[Task]()
 	if err != nil {
 		panic(err)
 	}
 
-	generation, err = studio.Get("/v1/generations/" + generation.ID).JSON[Generation]()
-	generation, err = studio.Patch("/v1/generations/"+generation.ID, map[string]any{"status": "canceled"}).JSON[Generation]()
-	fmt.Println(generation.Status, err)
+	task, err = api.Get("/tasks/" + task.ID).JSON[Task]()
+	task, err = api.Patch("/tasks/"+task.ID, map[string]any{"status": "done"}).JSON[Task]()
+	fmt.Println(task.Status, err)
 
 	// Nothing to read: Err is the response's error and nothing else.
-	if err := studio.Delete("/v1/uploads/upl_123").Err(); err != nil {
+	if err := api.Delete("/tasks/" + task.ID).Err(); err != nil {
 		panic(err)
 	}
 
 	// A status read as data, no opt-out needed.
-	if studio.Get("/v1/uploads/upl_123").Status() == 404 {
+	if api.Get("/tasks/"+task.ID).Status() == 404 {
 		fmt.Println("gone")
 	}
 
 	// Headers and anything rarer trail as options.
-	generation, err = studio.Post("/v1/generations",
-		GenerationRequest{Model: "nano-banana", Prompt: "a still life"},
-		hyper.Header("Idempotency-Key", "run-42-step-1"),
-	).JSON[Generation]()
-	fmt.Println(generation.ID, err)
+	task, err = api.Post("/tasks", NewTask{Title: "Ship it"}, hyper.Header("Idempotency-Key", "ship-1")).JSON[Task]()
+	fmt.Println(task.ID, err)
 }

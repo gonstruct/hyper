@@ -5,11 +5,11 @@ An HTTP client for talking to JSON APIs from Go, shaped after Laravel's
 line: the method, the URL, what goes in.
 
 ```go
-studio := hyper.New(ctx, hyper.Base("https://api.example.com"), hyper.BearerToken(key))
+api := hyper.New(ctx, hyper.Base("https://api.example.com"), hyper.BearerToken(token))
 
-models, err     := studio.Get("/v1/models", hyper.Query{"enabled": true}).JSON[[]Model]("data")
-generation, err := studio.Post("/v1/generations", request).JSON[Generation]()
-err             := studio.Delete("/v1/uploads/" + id).Err()
+projects, err := api.Get("/projects", hyper.Query{"archived": false}).JSON[[]Project]("data")
+task, err     := api.Post("/tasks", NewTask{Title: "Write the README"}).JSON[Task]()
+err           := api.Delete("/tasks/" + id).Err()
 ```
 
 Requires Go 1.27: `JSON` is a generic method.
@@ -20,11 +20,11 @@ The verb returns a `Response` that always exists and carries whatever went
 wrong. Read it folded, or step by step when the status matters first:
 
 ```go
-response := studio.Post("/v1/generations", request)
+response := api.Post("/tasks", task)
 if !response.Ok() {
     return response.Error()
 }
-generation, err := response.JSON[Generation]()
+created, err := response.JSON[Task]()
 ```
 
 | Method | Gives |
@@ -78,21 +78,22 @@ attempt; when it does not, nothing happens. `Untraced()` turns it off,
 
 ## Testing
 
-`hypertest` is a fake transport. No globals, so tests run in parallel, and a
+`hypertest` is a fake transport for code built on hyper: it answers requests
+from what a test put in and records what was sent. No globals, so tests run in parallel, and a
 request nobody expected fails the test with the request printed.
 
 ```go
 fake := hypertest.New(t)
-fake.On(hyper.POST, "/v1/generations").Reply(http.StatusAccepted, Generation{ID: "gen_1"})
-fake.On(hyper.GET, "/v1/generations/*").Sequence(
-    hypertest.Reply(http.StatusOK, Generation{Status: "running"}),
-    hypertest.Reply(http.StatusOK, Generation{Status: "succeeded"}),
+fake.On(hyper.POST, "/tasks").Reply(http.StatusAccepted, Task{ID: "task_1"})
+fake.On(hyper.GET, "/tasks/*").Sequence(
+    hypertest.Reply(http.StatusOK, Task{Status: "running"}),
+    hypertest.Reply(http.StatusOK, Task{Status: "done"}),
 )
 
-studio := hyper.New(ctx, hyper.Base("https://api.example.com"), hyper.Transport(fake))
+api := hyper.New(ctx, hyper.Base("https://api.example.com"), hyper.Transport(fake))
 
-fake.AssertSent(t, hyper.POST, "/v1/generations", func(sent hypertest.Sent) bool {
-    return sent.Header("Idempotency-Key") == "k" && sent.JSON("model") == "nano-banana"
+fake.AssertSent(t, hyper.POST, "/tasks", func(sent hypertest.Sent) bool {
+    return sent.Header("Idempotency-Key") == "k1" && sent.JSON("title") == "Write the README"
 })
 ```
 

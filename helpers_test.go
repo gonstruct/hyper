@@ -1,6 +1,6 @@
-// Package tests exercises hyper from the outside, against a real server
-// where a real server is what matters and against the fake where it is not.
-package tests_test
+// The tests see hyper the way a caller does: an external package, a real
+// server where a real server is what matters.
+package hyper_test
 
 import (
 	"context"

@@ -1,4 +1,4 @@
-package tests_test
+package hyper_test
 
 import (
 	"errors"
@@ -10,12 +10,12 @@ import (
 
 func TestAStructOrMapIsAJSONBody(t *testing.T) {
 	type input struct {
-		Model string `json:"model"`
+		Title string `json:"title"`
 	}
 	c := client(t)
 
-	got := seen(t, c.Post("/x", input{Model: "nano"}))
-	if got.ContentType != "application/json" || got.Body != `{"model":"nano"}` {
+	got := seen(t, c.Post("/x", input{Title: "write"}))
+	if got.ContentType != "application/json" || got.Body != `{"title":"write"}` {
 		t.Errorf("struct: %+v", got)
 	}
 
@@ -25,7 +25,7 @@ func TestAStructOrMapIsAJSONBody(t *testing.T) {
 	}
 
 	// A JSON body never overrides an explicit Content-Type header.
-	got = seen(t, c.Post("/x", input{Model: "nano"}, hyper.Header("Content-Type", "application/vnd.api+json")))
+	got = seen(t, c.Post("/x", input{Title: "write"}, hyper.Header("Content-Type", "application/vnd.api+json")))
 	if got.ContentType != "application/vnd.api+json" {
 		t.Errorf("explicit content type lost: %q", got.ContentType)
 	}

@@ -16,42 +16,42 @@ import (
 	"github.com/gonstruct/hyper"
 )
 
-type Generation struct {
+type Task struct {
 	ID string `json:"id"`
 }
 
 func main() {
-	studio := hyper.New(context.Background(), hyper.Base("https://api.tjp.com"), hyper.BearerToken("sk_..."))
+	api := hyper.New(context.Background(), hyper.Base("https://api.example.com"), hyper.BearerToken("token"))
 
-	response := studio.Post("/v1/generations", map[string]any{"model": "nano-banana", "prompt": "a still life"})
+	response := api.Post("/tasks", map[string]any{"title": "Write the README"})
 
 	var status *hyper.StatusError
 	switch err := response.Error(); {
 	case errors.As(err, &status):
-		// The provider answered and said no. Field reads one key of the
-		// body without decoding all of it.
+		// The API answered and said no. Field reads one key of the body
+		// without decoding all of it.
 		fmt.Println(status.Code, response.Field("error.message"))
 	case errors.Is(err, hyper.ErrTransport):
-		fmt.Println("never reached the provider:", err)
+		fmt.Println("never reached the API:", err)
 	default:
-		generation, err := response.JSON[Generation]()
-		fmt.Println(generation.ID, err)
+		task, err := response.JSON[Task]()
+		fmt.Println(task.ID, err)
 	}
 
 	// The same, folded, for the caller that only wants to pass it on.
-	generation, err := studio.Post("/v1/generations", map[string]any{"model": "nano-banana"}).JSON[Generation]()
+	task, err := api.Post("/tasks", map[string]any{"title": "Ship it"}).JSON[Task]()
 	if err != nil {
 		fmt.Println(describe(err))
 	}
-	fmt.Println(generation.ID)
+	fmt.Println(task.ID)
 }
 
 // The app translates once, at its edge, into its own words. The status error
-// carries the response, so the provider's message is still there.
+// carries the response, so the API's message is still there.
 func describe(err error) string {
 	var status *hyper.StatusError
 	if errors.As(err, &status) {
-		return fmt.Sprintf("tjp said %d: %s", status.Code, status.Response.Field("error.message"))
+		return fmt.Sprintf("the API said %d: %s", status.Code, status.Response.Field("error.message"))
 	}
 	return err.Error()
 }

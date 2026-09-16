@@ -1,6 +1,5 @@
-// A provider client the way an app writes one: an interface the app depends
-// on, a struct around a hyper client, one line per endpoint. This is the tjp
-// Studio client, rewritten.
+// An API client the way an app writes one: an interface the app depends on,
+// a struct around a hyper client, one line per endpoint.
 package main
 
 import (
@@ -13,10 +12,9 @@ import (
 	"github.com/gonstruct/hyper"
 )
 
-type Model struct {
-	ID           string `json:"id"`
-	DisplayName  string `json:"display_name"`
-	ContractHash string `json:"contract_hash"`
+type Project struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
 }
 
 type Upload struct {
@@ -24,23 +22,22 @@ type Upload struct {
 	UploadURL string `json:"upload_url"`
 }
 
-type GenerationRequest struct {
-	Model   string         `json:"model"`
-	Prompt  string         `json:"prompt,omitempty"`
-	Options map[string]any `json:"options"`
+type NewTask struct {
+	Project string `json:"project"`
+	Title   string `json:"title"`
 }
 
-type Generation struct {
+type Task struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
 }
 
-type Studio interface {
-	Models() ([]Model, error)
+type Tasks interface {
+	Projects() ([]Project, error)
 	Upload(name, mime string, body io.Reader, size int64) (Upload, error)
-	Generate(request GenerationRequest, idempotencyKey string) (Generation, error)
-	Generation(id string) (Generation, error)
-	Download(url string, into io.Writer) error
+	Create(task NewTask, idempotencyKey string) (Task, error)
+	Task(id string) (Task, error)
+	Export(id string, into io.Writer) error
 }
 
 type client struct {
@@ -48,11 +45,11 @@ type client struct {
 	raw hyper.Client // presigned URLs: no base, no token, same tracing, long timeout
 }
 
-func NewStudio(ctx context.Context, baseURL, apiKey string, transport http.RoundTripper) Studio {
+func NewTasks(ctx context.Context, baseURL, token string, transport http.RoundTripper) Tasks {
 	return &client{
 		api: hyper.New(ctx,
 			hyper.Base(baseURL),
-			hyper.BearerToken(apiKey),
+			hyper.BearerToken(token),
 			hyper.Transport(transport),
 			hyper.Timeout(30*time.Second),
 			hyper.Retry(3, hyper.Backoff(time.Second, 10*time.Second)),
@@ -61,35 +58,35 @@ func NewStudio(ctx context.Context, baseURL, apiKey string, transport http.Round
 	}
 }
 
-func (c *client) Models() ([]Model, error) {
-	return c.api.Get("/v1/models").JSON[[]Model]("data")
+func (c *client) Projects() ([]Project, error) {
+	return c.api.Get("/projects").JSON[[]Project]("data")
 }
 
 func (c *client) Upload(name, mime string, body io.Reader, size int64) (Upload, error) {
-	upload, err := c.api.Post("/v1/uploads", map[string]any{"filename": name, "content_type": mime, "size": size}).JSON[Upload]()
+	upload, err := c.api.Post("/files", map[string]any{"filename": name, "content_type": mime, "size": size}).JSON[Upload]()
 	if err != nil {
 		return upload, err
 	}
 	return upload, c.raw.Put(upload.UploadURL, hyper.Stream(body, size), hyper.ContentType(mime)).Err()
 }
 
-func (c *client) Generate(request GenerationRequest, idempotencyKey string) (Generation, error) {
-	return c.api.Post("/v1/generations", request, hyper.Header("Idempotency-Key", idempotencyKey)).JSON[Generation]()
+func (c *client) Create(task NewTask, idempotencyKey string) (Task, error) {
+	return c.api.Post("/tasks", task, hyper.Header("Idempotency-Key", idempotencyKey)).JSON[Task]()
 }
 
-func (c *client) Generation(id string) (Generation, error) {
-	return c.api.Get("/v1/generations/" + id).JSON[Generation]()
+func (c *client) Task(id string) (Task, error) {
+	return c.api.Get("/tasks/" + id).JSON[Task]()
 }
 
-func (c *client) Download(url string, into io.Writer) error {
-	return c.raw.Get(url, hyper.Sink(into)).Err()
+func (c *client) Export(id string, into io.Writer) error {
+	return c.api.Get("/tasks/"+id+"/export", hyper.Sink(into)).Err()
 }
 
 func main() {
-	studio := NewStudio(context.Background(), "https://api.tjp.com", "sk_...", nil)
-	models, err := studio.Models()
+	tasks := NewTasks(context.Background(), "https://api.example.com", "token", nil)
+	projects, err := tasks.Projects()
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println(len(models), "models")
+	fmt.Println(len(projects), "projects")
 }

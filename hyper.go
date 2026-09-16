@@ -3,11 +3,11 @@
 //
 // A request is one line: the method, the URL, what goes in.
 //
-//	studio := hyper.New(ctx, hyper.Base("https://api.example.com"), hyper.BearerToken(key))
+//	api := hyper.New(ctx, hyper.Base("https://api.example.com"), hyper.BearerToken(token))
 //
-//	models, err := studio.Get("/v1/models", hyper.Query{"enabled": true}).JSON[[]Model]("data")
-//	generation, err := studio.Post("/v1/generations", request).JSON[Generation]()
-//	err := studio.Delete("/v1/uploads/" + id).Err()
+//	projects, err := api.Get("/projects", hyper.Query{"archived": false}).JSON[[]Project]("data")
+//	task, err := api.Post("/tasks", NewTask{Title: "Write the README"}).JSON[Task]()
+//	err := api.Delete("/tasks/" + id).Err()
 //
 // The verb returns a Response that carries whatever went wrong; JSON, Bytes,
 // Text and Err hand that error back, so a folded call is still one check.

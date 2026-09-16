@@ -1,4 +1,4 @@
-package tests_test
+package hyper_test
 
 import (
 	"context"

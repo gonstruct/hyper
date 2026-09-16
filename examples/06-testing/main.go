@@ -12,43 +12,40 @@ import (
 	"github.com/gonstruct/hyper/hypertest"
 )
 
-type Generation struct {
+type Task struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
 }
 
-func TestGenerate(t *testing.T) {
+func TestCreateTask(t *testing.T) {
 	fake := hypertest.New(t)
 
-	fake.On(hyper.POST, "https://api.tjp.com/v1/generations").
-		Reply(http.StatusAccepted, Generation{ID: "gen_1", Status: "queued"})
+	fake.On(hyper.POST, "https://api.example.com/tasks").
+		Reply(http.StatusAccepted, Task{ID: "task_1", Status: "queued"})
 
 	// A sequence: first poll running, second done, a third fails the test.
-	fake.On(hyper.GET, "https://api.tjp.com/v1/generations/gen_1").Sequence(
-		hypertest.Reply(http.StatusOK, Generation{ID: "gen_1", Status: "running"}),
-		hypertest.Reply(http.StatusOK, Generation{ID: "gen_1", Status: "succeeded"}),
+	fake.On(hyper.GET, "https://api.example.com/tasks/task_1").Sequence(
+		hypertest.Reply(http.StatusOK, Task{ID: "task_1", Status: "running"}),
+		hypertest.Reply(http.StatusOK, Task{ID: "task_1", Status: "done"}),
 	)
 
 	// A refusal, matched on what was sent. Patterns take * for a segment.
-	fake.On(hyper.POST, "https://api.tjp.com/v1/generations").
-		When(func(sent hypertest.Sent) bool { return sent.JSON("model") == "banned" }).
-		Reply(http.StatusUnprocessableEntity, map[string]any{"error": map[string]any{"message": "model not enabled"}})
+	fake.On(hyper.POST, "https://api.example.com/tasks").
+		When(func(sent hypertest.Sent) bool { return sent.JSON("title") == "" }).
+		Reply(http.StatusUnprocessableEntity, map[string]any{"error": map[string]any{"message": "title is required"}})
 	fake.On(hyper.PUT, "https://bucket.example.com/*").Reply(http.StatusOK, nil)
 
-	studio := hyper.New(context.Background(), hyper.Base("https://api.tjp.com"), hyper.BearerToken("sk_test"), hyper.Transport(fake))
+	api := hyper.New(context.Background(), hyper.Base("https://api.example.com"), hyper.BearerToken("test"), hyper.Transport(fake))
 
-	generation, err := studio.Post("/v1/generations",
-		map[string]any{"model": "nano-banana", "prompt": "a still life"},
-		hyper.Header("Idempotency-Key", "step-1"),
-	).JSON[Generation]()
-	if err != nil || generation.ID != "gen_1" {
-		t.Fatalf("got %+v, %v", generation, err)
+	task, err := api.Post("/tasks", map[string]any{"title": "Write the README"}, hyper.Header("Idempotency-Key", "k1")).JSON[Task]()
+	if err != nil || task.ID != "task_1" {
+		t.Fatalf("got %+v, %v", task, err)
 	}
 
-	fake.AssertSent(t, hyper.POST, "/v1/generations", func(sent hypertest.Sent) bool {
-		return sent.Header("Idempotency-Key") == "step-1" && sent.JSON("model") == "nano-banana"
+	fake.AssertSent(t, hyper.POST, "/tasks", func(sent hypertest.Sent) bool {
+		return sent.Header("Idempotency-Key") == "k1" && sent.JSON("title") == "Write the README"
 	})
-	fake.AssertNotSent(t, hyper.GET, "/v1/generations/*")
+	fake.AssertNotSent(t, hyper.GET, "/tasks/*")
 	fake.AssertCount(t, 1)
 }
 

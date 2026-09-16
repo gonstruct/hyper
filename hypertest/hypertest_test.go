@@ -1,4 +1,4 @@
-package tests_test
+package hypertest_test
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/gonstruct/hyper/hypertest"
 )
 
-type generation struct {
+type task struct {
 	ID     string `json:"id"`
 	Status string `json:"status"`
 }
@@ -17,21 +17,21 @@ type generation struct {
 func faked(t *testing.T, fake *hypertest.Fake) hyper.Client {
 	t.Helper()
 
-	return hyper.New(context.Background(), hyper.Base("https://api.test"), hyper.Transport(fake), hyper.Untraced())
+	return hyper.New(context.Background(), hyper.Base("https://api.example.com"), hyper.Transport(fake), hyper.Untraced())
 }
 
 func TestTheFakeAnswersByMethodAndPattern(t *testing.T) {
 	fake := hypertest.New(t)
-	fake.On(hyper.POST, "/v1/generations").Reply(http.StatusAccepted, generation{ID: "gen_1", Status: "queued"})
-	fake.On(hyper.GET, "https://api.test/v1/generations/*").Reply(http.StatusOK, generation{ID: "gen_1", Status: "done"})
+	fake.On(hyper.POST, "/tasks").Reply(http.StatusAccepted, task{ID: "task_1", Status: "queued"})
+	fake.On(hyper.GET, "https://api.example.com/tasks/*").Reply(http.StatusOK, task{ID: "task_1", Status: "done"})
 
-	studio := faked(t, fake)
+	api := faked(t, fake)
 
-	created, err := studio.Post("/v1/generations", map[string]any{"model": "nano"}).JSON[generation]()
-	if err != nil || created.ID != "gen_1" {
+	created, err := api.Post("/tasks", map[string]any{"title": "write"}).JSON[task]()
+	if err != nil || created.ID != "task_1" {
 		t.Fatalf("create: %+v %v", created, err)
 	}
-	fetched, err := studio.Get("/v1/generations/gen_1").JSON[generation]()
+	fetched, err := api.Get("/tasks/task_1").JSON[task]()
 	if err != nil || fetched.Status != "done" {
 		t.Fatalf("fetch: %+v %v", fetched, err)
 	}
@@ -42,35 +42,35 @@ func TestTheFakeAnswersByMethodAndPattern(t *testing.T) {
 
 func TestASequenceAnswersInOrderAndThenFails(t *testing.T) {
 	fake := hypertest.New(&recordingT{TB: t})
-	fake.On(hyper.GET, "/v1/generations/*").Sequence(
-		hypertest.Reply(http.StatusOK, generation{Status: "running"}),
-		hypertest.Reply(http.StatusOK, generation{Status: "succeeded"}),
+	fake.On(hyper.GET, "/tasks/*").Sequence(
+		hypertest.Reply(http.StatusOK, task{Status: "running"}),
+		hypertest.Reply(http.StatusOK, task{Status: "succeeded"}),
 	)
-	studio := faked(t, fake)
+	api := faked(t, fake)
 
-	first, _ := studio.Get("/v1/generations/gen_1").JSON[generation]()
-	second, _ := studio.Get("/v1/generations/gen_1").JSON[generation]()
+	first, _ := api.Get("/tasks/task_1").JSON[task]()
+	second, _ := api.Get("/tasks/task_1").JSON[task]()
 	if first.Status != "running" || second.Status != "succeeded" {
 		t.Errorf("sequence: %s then %s", first.Status, second.Status)
 	}
-	if err := studio.Get("/v1/generations/gen_1").Err(); err == nil {
+	if err := api.Get("/tasks/task_1").Err(); err == nil {
 		t.Error("a third call should fail once the sequence is exhausted")
 	}
 }
 
 func TestAConditionNarrowsAnExpectation(t *testing.T) {
 	fake := hypertest.New(t)
-	fake.On(hyper.POST, "/v1/generations").
-		When(func(sent hypertest.Sent) bool { return sent.JSON("model") == "banned" }).
-		Reply(http.StatusUnprocessableEntity, map[string]any{"error": map[string]any{"message": "not enabled"}})
-	fake.On(hyper.POST, "/v1/generations").Reply(http.StatusAccepted, generation{ID: "gen_1"})
-	studio := faked(t, fake)
+	fake.On(hyper.POST, "/tasks").
+		When(func(sent hypertest.Sent) bool { return sent.JSON("title") == "forbidden" }).
+		Reply(http.StatusUnprocessableEntity, map[string]any{"error": map[string]any{"message": "title not allowed"}})
+	fake.On(hyper.POST, "/tasks").Reply(http.StatusAccepted, task{ID: "task_1"})
+	api := faked(t, fake)
 
-	response := studio.Post("/v1/generations", map[string]any{"model": "banned"})
-	if response.Status() != http.StatusUnprocessableEntity || response.Field("error.message") != "not enabled" {
+	response := api.Post("/tasks", map[string]any{"title": "forbidden"})
+	if response.Status() != http.StatusUnprocessableEntity || response.Field("error.message") != "title not allowed" {
 		t.Errorf("the conditional expectation did not answer: %d", response.Status())
 	}
-	if !studio.Post("/v1/generations", map[string]any{"model": "nano"}).Ok() {
+	if !api.Post("/tasks", map[string]any{"title": "write"}).Ok() {
 		t.Error("the general expectation did not answer")
 	}
 }
@@ -80,36 +80,36 @@ func TestRepliesCanCarryHeadersAndRawBodies(t *testing.T) {
 	fake.On(hyper.GET, "/text").Sequence(hypertest.Respond(http.StatusOK, "plain", hyper.H{"Content-Type": "text/plain"}))
 	fake.On(hyper.GET, "/bytes").Reply(http.StatusOK, []byte{1, 2, 3})
 	fake.On(hyper.DELETE, "/thing").Reply(http.StatusNoContent, nil)
-	studio := faked(t, fake)
+	api := faked(t, fake)
 
-	response := studio.Get("/text")
+	response := api.Get("/text")
 	if text, _ := response.Text(); text != "plain" || response.Header("Content-Type") != "text/plain" {
 		t.Errorf("text reply: %q %q", text, response.Header("Content-Type"))
 	}
-	if data, _ := studio.Get("/bytes").Bytes(); len(data) != 3 {
+	if data, _ := api.Get("/bytes").Bytes(); len(data) != 3 {
 		t.Errorf("bytes reply: %v", data)
 	}
-	if err := studio.Delete("/thing").Err(); err != nil {
+	if err := api.Delete("/thing").Err(); err != nil {
 		t.Errorf("nil reply: %v", err)
 	}
 }
 
 func TestAssertionsReadWhatWasSent(t *testing.T) {
 	fake := hypertest.New(t)
-	fake.On(hyper.POST, "/v1/generations").Reply(http.StatusAccepted, generation{ID: "gen_1"})
-	studio := faked(t, fake)
+	fake.On(hyper.POST, "/tasks").Reply(http.StatusAccepted, task{ID: "task_1"})
+	api := faked(t, fake)
 
-	studio.Post("/v1/generations", map[string]any{"model": "nano"}, hyper.Header("Idempotency-Key", "k"), hyper.Query{"dry": true})
+	api.Post("/tasks", map[string]any{"title": "write"}, hyper.Header("Idempotency-Key", "k"), hyper.Query{"dry": true})
 
-	fake.AssertSent(t, hyper.POST, "/v1/generations", func(sent hypertest.Sent) bool {
-		return sent.Header("Idempotency-Key") == "k" && sent.JSON("model") == "nano" && sent.Query("dry") == "true"
+	fake.AssertSent(t, hyper.POST, "/tasks", func(sent hypertest.Sent) bool {
+		return sent.Header("Idempotency-Key") == "k" && sent.JSON("title") == "write" && sent.Query("dry") == "true"
 	})
-	fake.AssertNotSent(t, hyper.GET, "/v1/generations/*")
+	fake.AssertNotSent(t, hyper.GET, "/tasks/*")
 	fake.AssertCount(t, 1)
 
 	recorder := &recordingT{TB: t}
-	fake.AssertSent(recorder, hyper.DELETE, "/v1/generations")
-	fake.AssertNotSent(recorder, hyper.POST, "/v1/generations")
+	fake.AssertSent(recorder, hyper.DELETE, "/tasks")
+	fake.AssertNotSent(recorder, hyper.POST, "/tasks")
 	fake.AssertCount(recorder, 2)
 	if recorder.failures != 3 {
 		t.Errorf("each false assertion should fail, got %d failures", recorder.failures)
